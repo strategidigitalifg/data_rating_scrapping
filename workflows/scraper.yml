@@ -1,0 +1,29 @@
+name: Daily Review Scraper
+
+on:
+  schedule:
+    - cron: '0 8 * * *'   # Runs every day at 8:00 UTC
+  workflow_dispatch:        # Allow manual trigger
+
+jobs:
+  run-scraper:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run scraper
+        env:
+          GDRIVE_CREDENTIAL_JSON: ${{ secrets.GDRIVE_CREDENTIAL_JSON }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+        run: python scraper.py
