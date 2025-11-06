@@ -1,0 +1,30 @@
+name: Auto Update App Reviews
+
+on:
+  schedule:
+    - cron: '0 1 * * *'   # Runs every day at 06:00 UTC (08:00 Jakarta)
+  workflow_dispatch:       # Allow manual trigger
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install google-play-scraper requests pandas gspread google-auth gdown
+
+      - name: Run scraper
+        env:
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          GDRIVE_CREDENTIAL_JSON: ${{ secrets.GDRIVE_CREDENTIAL_JSON }}
+        run: |
+          echo "$GDRIVE_CREDENTIAL_JSON" > ifg-credentials.json
+          python main.py
