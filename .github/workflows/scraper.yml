@@ -26,4 +26,4 @@ jobs:
         env:
           GDRIVE_CREDENTIAL_JSON: ${{ secrets.GDRIVE_CREDENTIAL_JSON }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
-        run: python scraper.py
+        run: python data_scrapping.py
