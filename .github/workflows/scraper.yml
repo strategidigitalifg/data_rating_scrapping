@@ -2,7 +2,7 @@ name: Daily Review Scraper
 
 on:
   schedule:
-    - cron: '0 6 * * *'   # 06:00 UTC = 13:00 WIB
+    - cron: '0 2 * * *'   # 06:00 UTC = 9:00 WIB
   workflow_dispatch:
 
 jobs:
