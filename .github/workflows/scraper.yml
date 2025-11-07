@@ -2,7 +2,8 @@ name: Daily Review Scraper
 
 on:
   schedule:
-    - cron: '0 2 * * *'   # 06:00 UTC = 9:00 WIB
+    # Ganti cron: '0 2 * * *' (Sekali sehari, 02:00 UTC / 09:00 WIB)
+    - cron: '0 * * * *'  # BARU: Setiap 1 jam sekali (pada menit ke-0)
   workflow_dispatch:
 
 jobs:
