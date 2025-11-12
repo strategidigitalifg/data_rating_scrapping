@@ -120,26 +120,47 @@ def read_sheet(sheet_name):
         print(f"⚠️ Gagal membaca {sheet_name}: {e}")
         return pd.DataFrame()
 
-# === 8️⃣ Normalisasi datetime ke WIB ===
-def normalize_to_wib(series):
+# === 8️⃣A Normalisasi datetime untuk App Store ===
+def normalize_appstore_datetime(series):
     tz_wib = pytz.timezone("Asia/Jakarta")
-    out = []
+    result = []
     for val in series:
         if pd.isna(val) or str(val).strip() == "":
-            out.append("")
+            result.append("")
             continue
         try:
-            dt = pd.to_datetime(val, errors="coerce")
+            # parsing ISO 8601 (dengan offset -07:00, -08:00, dll)
+            dt = pd.to_datetime(val, utc=True, errors="coerce")
             if pd.isna(dt):
-                out.append("")
+                result.append("")
                 continue
-            if dt.tzinfo is None:
-                dt = dt.tz_localize("UTC")
             dt_wib = dt.tz_convert(tz_wib)
-            out.append(dt_wib.strftime("%Y-%m-%d %H:%M:%S"))
+            result.append(dt_wib.strftime("%Y-%m-%d %H:%M:%S"))
         except Exception:
-            out.append("")
-    return out
+            result.append("")
+    return result
+
+
+# === 8️⃣B Normalisasi datetime untuk Google Play ===
+def normalize_playstore_datetime(series):
+    tz_wib = pytz.timezone("Asia/Jakarta")
+    result = []
+    for val in series:
+        if pd.isna(val) or str(val).strip() == "":
+            result.append("")
+            continue
+        try:
+            # format umumnya tanpa timezone (anggap UTC)
+            dt = pd.to_datetime(val, utc=True, errors="coerce")
+            if pd.isna(dt):
+                result.append("")
+                continue
+            dt_wib = dt.tz_convert(tz_wib)
+            result.append(dt_wib.strftime("%Y-%m-%d %H:%M:%S"))
+        except Exception:
+            result.append("")
+    return result
+
 
 # === 9️⃣ Urutan kolom ===
 DESIRED_ORDER = [
@@ -201,15 +222,23 @@ def append_no_duplicates_to_data_review(new_df, key_column="reviewid"):
 df_play = read_sheet("Google Play")
 df_app = read_sheet("Apps Store")
 
+# 🕒 Normalisasi waktu per sumber
+if not df_app.empty:
+    for col in ["Date", "repliedAt"]:
+        if col in df_app.columns:
+            df_app[col] = normalize_appstore_datetime(df_app[col])
+    print("🕒 App Store datetime normalized ke WIB")
+
+if not df_play.empty:
+    for col in ["Date", "repliedAt"]:
+        if col in df_play.columns:
+            df_play[col] = normalize_playstore_datetime(df_play[col])
+    print("🕒 Google Play datetime normalized ke WIB")
+
 if df_play.empty and df_app.empty:
     print("❌ Tidak ada data untuk digabungkan.")
 else:
     df_all = pd.concat([df_play, df_app], ignore_index=True)
-
-    # Normalisasi datetime ke WIB
-    for col in ["Date", "repliedAt"]:
-        if col.lower() in df_all.columns:
-            df_all[col] = normalize_to_wib(df_all[col])
 
     df_all.columns = df_all.columns.str.strip().str.lower()
     for col in DESIRED_ORDER_LOWER:
@@ -224,9 +253,9 @@ else:
     df_all["reviewid"] = df_all["reviewid"].astype(str)
 
     if "date" in df_all.columns:
-        df_all["date"] = pd.to_datetime(df_all["date"], errors="coerce")
+        df_all["date"] = pd.to_datetime(df_all["date"], errors="coerce", utc=True)
         df_all = df_all.sort_values("date", ascending=False, na_position="last")
-        df_all["date"] = df_all["date"].dt.strftime("%Y-%m-%d %H:%M:%S").fillna("")
+        df_all["date"] = df_all["date"].dt.tz_convert("Asia/Jakarta").dt.strftime("%Y-%m-%d %H:%M:%S").fillna("")
 
     print(f"📊 Total data gabungan: {len(df_all)} baris.")
     append_no_duplicates_to_data_review(df_all)
