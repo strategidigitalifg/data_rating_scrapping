@@ -1,0 +1,152 @@
+# === 1️⃣ Install dependencies ===
+# (handled by GitHub Actions)
+
+# === 2️⃣ Import libraries ===
+from google_play_scraper import Sort, reviews_all
+import pandas as pd, requests, time, json, os
+from google.oauth2.service_account import Credentials
+import gspread
+from datetime import datetime
+
+# === 3️⃣ Konfigurasi Spreadsheet & Credentials ===
+info = json.loads(os.environ["GDRIVE_CREDENTIAL_JSON"])
+SPREADSHEET_ID = os.environ["SPREADSHEET_ID"]
+
+scopes = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
+creds = Credentials.from_service_account_info(info, scopes=scopes)
+gc = gspread.authorize(creds)
+spreadsheet = gc.open_by_key(SPREADSHEET_ID)
+
+print(f"🗓️ Script dijalankan pada: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+
+# === 4️⃣ Fungsi Ambil Review dari Google Play ===
+def fetch_playstore(app_id="com.one.ifg", lang="id", country="id"):
+    print("📱 Mengambil review dari Google Play...")
+    reviews_data = reviews_all(app_id, lang=lang, country=country, sort=Sort.NEWEST)
+    df = pd.DataFrame(reviews_data)
+
+    df_final = pd.DataFrame({
+        "Apps": "Google Play",
+        "Date": pd.to_datetime(df["at"]),
+        "Detail": df["content"],
+        "Rating": df["score"],
+        "Username": df["userName"],
+        "appVersion": df["appVersion"],
+        "repliedAt": df["repliedAt"],
+        "replyContent": df["replyContent"],
+        "reviewCreatedVersion": df["reviewCreatedVersion"],
+        "reviewId": df["reviewId"],
+        "thumbsUpCount": df["thumbsUpCount"],
+        "title": df["reviewCreatedVersion"],
+        "userImage": df["userImage"]
+    }).astype(str)
+
+    df_final = df_final.sort_values("Date", ascending=False)
+    print(f"✅ {len(df_final)} review Google Play berhasil diambil.\n")
+    return df_final
+
+# === 5️⃣ Fungsi Ambil Review dari App Store ===
+def fetch_appstore(app_id="1564248452", country="id", max_pages=500, delay=1.0):
+    print("🍎 Mengambil review dari App Store...")
+    rows = []
+
+    for p in range(1, max_pages + 1):
+        url = f"https://itunes.apple.com/{country}/rss/customerreviews/page={p}/id={app_id}/sortBy=mostRecent/json"
+        resp = requests.get(url)
+        if resp.status_code != 200:
+            print(f"[!] Halaman {p} gagal: HTTP {resp.status_code}")
+            break
+
+        feed = resp.json().get("feed", {})
+        entries = feed.get("entry", [])
+        if isinstance(entries, dict):
+            entries = [entries]
+        if p == 1 and entries:
+            entries = entries[1:]
+        if not entries:
+            print(f"[√] Selesai di halaman {p}")
+            break
+
+        for e in entries:
+            rows.append({
+                "Apps": "App Store",
+                "Date": e["updated"]["label"],
+                "Detail": e["content"]["label"],
+                "Rating": e["im:rating"]["label"],
+                "Username": e["author"]["name"]["label"],
+                "appVersion": e["im:version"]["label"],
+                "repliedAt": None,
+                "replyContent": None,
+                "reviewCreatedVersion": e["im:version"]["label"],
+                "reviewId": e["id"]["label"],
+                "thumbsUpCount": None,
+                "title": e["title"]["label"],
+                "userImage": None
+            })
+
+        print(f"→ Halaman {p}: {len(entries)} review")
+        time.sleep(delay)
+
+    df = pd.DataFrame(rows)
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    df = df.sort_values("Date", ascending=False).astype(str)
+    print(f"✅ {len(df)} review App Store berhasil diambil.\n")
+    return df
+
+# === 6️⃣ Fungsi Upload Aman Tanpa Duplikat ===
+def append_no_duplicates(worksheet, new_df, key_column="reviewId"):
+    try:
+        existing_data = worksheet.get_all_records()
+        df_existing = pd.DataFrame(existing_data) if existing_data else pd.DataFrame(columns=new_df.columns)
+    except Exception as e:
+        print(f"[⚠️] Tidak bisa membaca data lama: {e}")
+        df_existing = pd.DataFrame(columns=new_df.columns)
+
+    df_existing.columns = df_existing.columns.str.strip().str.lower()
+    new_df.columns = new_df.columns.str.strip().str.lower()
+    key_column = key_column.lower()
+
+    if key_column not in new_df.columns:
+        print(f"[❌] Kolom {key_column} tidak ditemukan di data baru!")
+        return
+
+    if key_column not in df_existing.columns:
+        df_existing[key_column] = ""
+
+    df_existing[key_column] = df_existing[key_column].astype(str)
+    new_df[key_column] = new_df[key_column].astype(str)
+
+    if not df_existing.empty:
+        new_unique = new_df[~new_df[key_column].isin(df_existing[key_column])]
+    else:
+        new_unique = new_df
+
+    if new_unique.empty:
+        print(f"✅ Tidak ada review baru untuk {worksheet.title}.\n")
+        return
+
+    print(f"✨ Menambahkan {len(new_unique)} review baru ke «{worksheet.title}»...")
+    rows_to_append = new_unique.astype(str).values.tolist()
+    worksheet.append_rows(rows_to_append, value_input_option="USER_ENTERED")
+    print(f"✅ {len(new_unique)} baris baru berhasil ditambahkan ke {worksheet.title}.\n")
+
+# === 7️⃣ Jalankan & Upload Otomatis ===
+df_play = fetch_playstore()
+df_app = fetch_appstore()
+
+try:
+    ws_play = spreadsheet.worksheet("Google Play")
+except gspread.WorksheetNotFound:
+    ws_play = spreadsheet.add_worksheet(title="Google Play", rows="1000", cols="20")
+append_no_duplicates(ws_play, df_play)
+
+try:
+    ws_app = spreadsheet.worksheet("Apps Store")
+except gspread.WorksheetNotFound:
+    ws_app = spreadsheet.add_worksheet(title="Apps Store", rows="1000", cols="20")
+append_no_duplicates(ws_app, df_app)
+
+print("🎉 Semua data berhasil di-update tanpa menghapus data lama!")
